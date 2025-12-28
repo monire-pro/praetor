@@ -1,0 +1,24 @@
+{
+    "balance": 1150.0,
+    "spent": 100.0,
+    "revenue": 250.0,
+    "net_profit": 150.0,
+    "history": [
+        {
+            "id": 2,
+            "time": "20:12:59",
+            "type": "YIELD_FARM",
+            "cost": 50.0,
+            "revenue": 125.0,
+            "profit": 75.0
+        },
+        {
+            "id": 1,
+            "time": "16:39:19",
+            "type": "YIELD_FARM",
+            "cost": 50.0,
+            "revenue": 125.0,
+            "profit": 75.0
+        }
+    ]
+}
