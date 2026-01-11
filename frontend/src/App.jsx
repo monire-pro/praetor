@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, Play, Activity, Cpu, Search } from 'lucide-react';
+import { Terminal, Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, Play, Activity, Cpu, Search, Wifi, Zap } from 'lucide-react';
 import './App.css';
 
 function App() {
@@ -14,21 +14,77 @@ function App() {
     history: []
   });
   const [loading, setLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const logsEndRef = useRef(null);
 
-  // 1. POLL LOGS
+  // ==============================================
+  // 1. WEBSOCKET CONNECTION (The Data Stream)
+  // ==============================================
   useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:8000/logs');
-        const data = await res.json();
-        if (Array.isArray(data)) setLogs(data);
-      } catch (e) {
-        console.error("Log Poll Error:", e);
+    let ws = null;
+    let isMounted = true;
+    let retryCount = 0;
+
+    const connectWebSocket = () => {
+      // Prevent infinite rapid retries
+      if (retryCount > 5) {
+        console.error("🛑 Max retries reached. backend likely offline.");
+        return;
       }
+
+      console.log(`🔌 Attempting WS Connection (Attempt ${retryCount + 1})...`);
+      ws = new WebSocket("ws://127.0.0.1:8000/ws");
+
+      ws.onopen = () => {
+        if (isMounted) {
+          console.log("🟢 Connected to Neural Net");
+          setIsConnected(true);
+          retryCount = 0; // Reset retries on success
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (!isMounted) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.tag) {
+            setLogs((prev) => {
+              const newLogs = [...prev, data];
+              return newLogs.slice(-100); // Keep last 100
+            });
+          }
+        } catch (err) {
+          console.error("Parse Error:", err);
+        }
+      };
+
+      ws.onclose = (event) => {
+        if (isMounted) {
+          console.log("🔴 WebSocket Disconnected code:", event.code);
+          setIsConnected(false);
+          
+          // Retry connection after 3 seconds
+          setTimeout(() => {
+            if (isMounted && (!ws || ws.readyState === WebSocket.CLOSED)) {
+               retryCount++;
+               connectWebSocket();
+            }
+          }, 3000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("⚠️ WebSocket Error. Backend reachable?", error);
+        ws.close();
+      };
     };
-    const interval = setInterval(fetchLogs, 1000);
-    return () => clearInterval(interval);
+
+    connectWebSocket();
+
+    return () => {
+      isMounted = false;
+      if (ws) ws.close();
+    };
   }, []);
 
   // Auto-scroll logs
@@ -36,33 +92,76 @@ function App() {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  // 2. POLL STATS
+  // ==============================================
+  // 2. HTTP ACTIONS (Ping & Commands)
+  // ==============================================
+
+  // Poll Stats every 2 seconds
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const res = await fetch('http://127.0.0.1:8000/status');
-        const data = await res.json();
-        setStats(data);
+        if (res.ok) {
+           const data = await res.json();
+           setStats(data);
+        }
       } catch (e) {
-        console.error("Stats Poll Error:", e);
+        // Silent fail on polling to avoid console spam
       }
     };
     const interval = setInterval(fetchStats, 2000);
     return () => clearInterval(interval);
   }, []);
 
+  // MANUAL PING TEST
+  const handlePing = async () => {
+    console.log("📡 Pinging Backend...");
+    try {
+      const res = await fetch('http://127.0.0.1:8000/status');
+      if (res.ok) {
+        const data = await res.json();
+        console.log("✅ PING SUCCESS:", data);
+        alert("✅ Backend is ONLINE! Connection verified.");
+      } else {
+        alert("⚠️ Backend responded with error: " + res.status);
+      }
+    } catch (e) {
+      console.error("Ping Failed:", e);
+      alert("❌ PING FAILED: Backend unreachable.\nIs python running? \nIs uvicorn running?");
+    }
+  };
+
   const handleRunAgent = async () => {
     if (!goal) return;
     setLoading(true);
+    
+    // Add local log immediately for better UX
+    const tempLog = { 
+        timestamp: Date.now() / 1000, 
+        tag: "CLIENT", 
+        description: `Sending command: ${goal}...` 
+    };
+    setLogs(prev => [...prev, tempLog]);
+
     try {
-      await fetch('http://127.0.0.1:8000/run-agent', {
+      const res = await fetch('http://127.0.0.1:8000/run-agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal })
       });
+      
+      if (!res.ok) throw new Error("Backend Error");
+      
       setGoal("");
     } catch (e) {
-      alert("Backend Offline");
+      console.error(e);
+      const errLog = { 
+        timestamp: Date.now() / 1000, 
+        tag: "ERROR", 
+        description: "Failed to send command. Backend Offline." 
+      };
+      setLogs(prev => [...prev, errLog]);
+      alert("❌ Backend Offline. Check Terminal.");
     }
     setLoading(false);
   };
@@ -73,26 +172,21 @@ function App() {
     return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
   };
 
-  // --- UI COMPONENTS ---
-
+  // ==============================================
+  // 3. RENDER UI
+  // ==============================================
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans selection:bg-blue-500/30 overflow-hidden relative">
       
-      {/* === BACKGROUND IMAGE LAYER === */}
+      {/* BACKGROUND */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        {/* Placeholder Tech Image - Replace 'src' with your own URL if desired */}
-        <img 
-            src="/bg.jpg"
-            alt="Background" 
-            className="w-full h-full object-cover opacity-55"
-        />
-        {/* Dark Gradient Overlay to ensure text readability */}
+        <img src="/bg.jpg" alt="Background" className="w-full h-full object-cover opacity-55"/>
         <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/90 via-zinc-950/80 to-black/90"></div>
       </div>
 
       <div className="max-w-[1600px] mx-auto p-4 lg:p-6 relative z-10 h-screen flex flex-col">
         
-        {/* === HEADER === */}
+        {/* HEADER */}
         <header className="flex items-center justify-between mb-6 pb-4 border-b border-white/5">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-900 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20 border border-blue-500/30">
@@ -107,24 +201,37 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
-             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-sm transition-all duration-500 ${
-                stats.status === "WORKING" 
-                ? "bg-amber-500/10 border-amber-500/20 text-amber-400" 
-                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-              }`}>
-                <Activity className={`w-3.5 h-3.5 ${stats.status === "WORKING" ? "animate-spin" : ""}`} />
-                <span className="text-xs font-bold tracking-wide">{stats.status}</span>
-             </div>
+            
+            {/* PING BUTTON */}
+            <button 
+                onClick={handlePing}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 text-xs font-bold transition-colors"
+            >
+                <Zap className="w-3.5 h-3.5" />
+                PING NETWORK
+            </button>
+
+            {/* STATUS */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-sm transition-all duration-500 ${
+                isConnected 
+                ? "bg-zinc-900/50 border-zinc-700 text-zinc-400" 
+                : "bg-red-900/20 border-red-500/20 text-red-500"
+            }`}>
+               <Wifi className={`w-3.5 h-3.5 ${isConnected ? "text-emerald-500" : "text-red-500"}`} />
+               <span className="text-xs font-bold tracking-wide">
+                 {isConnected ? "LIVE FEED" : "OFFLINE"}
+               </span>
+            </div>
           </div>
         </header>
 
-        {/* === MAIN LAYOUT === */}
+        {/* MAIN LAYOUT */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
 
-          {/* === LEFT: CONSOLE & INPUT === */}
+          {/* LEFT COLUMN */}
           <div className="lg:col-span-8 flex flex-col gap-6 min-h-0">
             
-            {/* INPUT SECTION */}
+            {/* INPUT */}
             <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-1 shadow-xl backdrop-blur-md">
               <div className="relative flex items-center">
                 <div className="absolute left-4 text-blue-500">
@@ -149,18 +256,17 @@ function App() {
               </div>
             </div>
 
-            {/* LOGS & TABLE SPLIT */}
+            {/* SPLIT AREA */}
             <div className="flex-1 grid grid-rows-2 gap-6 min-h-0">
               
-              {/* TERMINAL LOGS */}
+              {/* LOGS */}
               <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden flex flex-col shadow-inner relative group backdrop-blur-sm">
-                <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex justify-between items-center backdrop-blur-sm">
+                <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex justify-between items-center">
                   <span className="text-[10px] font-mono text-zinc-400 uppercase flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
                     System Stream
                   </span>
                 </div>
-                
                 <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs custom-scrollbar">
                   {logs.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center text-zinc-700 space-y-2">
@@ -169,13 +275,13 @@ function App() {
                     </div>
                   )}
                   {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3 group/log animate-in fade-in slide-in-from-left-2 duration-300">
+                    <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
                       <span className="text-zinc-600 shrink-0 select-none">{formatTime(log.timestamp)}</span>
                       <div className="flex gap-2">
                         <span className={`shrink-0 px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold border ${
                           log.tag === "ERROR" || log.tag === "ABORT" ? "bg-red-500/10 text-red-400 border-red-500/20" :
                           log.tag === "SUCCESS" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                          log.tag === "COMMAND" ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
+                          log.tag === "COMMAND" || log.tag === "CLIENT" ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
                           "bg-blue-500/10 text-blue-400 border-blue-500/20"
                         }`}>
                           {log.tag}
@@ -190,7 +296,7 @@ function App() {
                 </div>
               </div>
 
-              {/* LEDGER */}
+              {/* TABLE */}
               <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden flex flex-col backdrop-blur-sm">
                 <div className="px-5 py-3 border-b border-white/5 bg-white/[0.02] flex justify-between items-center">
                   <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Transaction Ledger</h3>
@@ -209,7 +315,7 @@ function App() {
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {stats.history.length === 0 ? (
-                         <tr><td colSpan="5" className="text-center py-10 text-zinc-700 italic">No ledger activity recorded.</td></tr>
+                          <tr><td colSpan="5" className="text-center py-10 text-zinc-700 italic">No ledger activity recorded.</td></tr>
                       ) : (
                         stats.history.map((tx) => (
                           <tr key={tx.id} className="hover:bg-white/[0.03] transition-colors group">
@@ -231,20 +337,18 @@ function App() {
             </div>
           </div>
 
-          {/* === RIGHT: FINANCIALS === */}
+          {/* RIGHT COLUMN */}
           <div className="lg:col-span-4 flex flex-col gap-4">
             
-            {/* BALANCE CARD */}
+            {/* BALANCE */}
             <div className="bg-gradient-to-br from-zinc-900/80 to-black/80 border border-white/10 p-6 rounded-2xl relative overflow-hidden group backdrop-blur-md">
               <div className="absolute -right-10 -top-10 w-40 h-40 bg-blue-600/10 rounded-full blur-3xl group-hover:bg-blue-600/20 transition-all"></div>
-              
               <div className="flex justify-between items-start mb-6 relative z-10">
                 <div className="p-2 bg-zinc-800/50 rounded-lg border border-white/5">
                   <Wallet className="w-5 h-5 text-zinc-400" />
                 </div>
                 <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Treasury</span>
               </div>
-              
               <div className="relative z-10">
                 <div className="text-4xl font-mono font-bold text-white tracking-tighter">
                   {stats.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -255,51 +359,38 @@ function App() {
               </div>
             </div>
 
-            {/* METRICS GRID */}
+            {/* METRICS */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm hover:border-red-500/30 transition-colors">
+              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="p-1.5 bg-red-500/10 rounded text-red-500">
-                    <ArrowDownLeft className="w-3.5 h-3.5" />
-                  </div>
+                  <div className="p-1.5 bg-red-500/10 rounded text-red-500"><ArrowDownLeft className="w-3.5 h-3.5" /></div>
                   <span className="text-[10px] uppercase text-zinc-500 font-bold">Spent</span>
                 </div>
                 <p className="text-xl font-mono text-zinc-200">{stats.spent.toLocaleString()}</p>
               </div>
-
-              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm hover:border-blue-500/30 transition-colors">
-                 <div className="flex items-center gap-2 mb-3">
-                  <div className="p-1.5 bg-blue-500/10 rounded text-blue-500">
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </div>
+              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-blue-500/10 rounded text-blue-500"><ArrowUpRight className="w-3.5 h-3.5" /></div>
                   <span className="text-[10px] uppercase text-zinc-500 font-bold">Revenue</span>
                 </div>
                 <p className="text-xl font-mono text-zinc-200">{stats.revenue.toLocaleString()}</p>
               </div>
             </div>
 
-            {/* NET PROFIT HERO */}
+            {/* NET PROFIT */}
             <div className="flex-1 min-h-[180px] bg-gradient-to-b from-zinc-900/80 to-black/80 border border-white/10 rounded-2xl p-6 relative flex flex-col justify-end overflow-hidden backdrop-blur-md">
-               {/* Background Chart Effect (Abstract) */}
                <div className="absolute inset-0 opacity-20">
                   <svg className="w-full h-full" preserveAspectRatio="none">
                     <path d="M0,100 Q50,50 100,80 T200,40 T300,90" fill="none" stroke={stats.net_profit >= 0 ? "#10b981" : "#ef4444"} strokeWidth="2" vectorEffect="non-scaling-stroke" />
                   </svg>
                </div>
-               
                <div className="relative z-10">
                  <div className="flex items-center justify-between mb-2">
                     <span className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Total Yield</span>
                     <DollarSign className={`w-5 h-5 ${stats.net_profit >= 0 ? "text-emerald-500" : "text-red-500"}`} />
                  </div>
-                 <div className={`text-4xl font-mono font-bold tracking-tight ${stats.net_profit >= 0 ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.3)]" : "text-red-400 drop-shadow-[0_0_10px_rgba(248,113,113,0.3)]"}`}>
+                 <div className={`text-4xl font-mono font-bold tracking-tight ${stats.net_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                     {stats.net_profit >= 0 ? "+" : ""}{stats.net_profit.toLocaleString()}
-                 </div>
-                 <div className="mt-3 flex items-center gap-2">
-                    <div className={`h-1 flex-1 rounded-full ${stats.net_profit >= 0 ? "bg-emerald-900/50" : "bg-red-900/50"}`}>
-                       <div className={`h-full rounded-full w-[70%] ${stats.net_profit >= 0 ? "bg-emerald-500" : "bg-red-500"}`}></div>
-                    </div>
-                    <span className="text-[10px] text-zinc-500">ROI IMPRESSION</span>
                  </div>
                </div>
             </div>
@@ -307,8 +398,6 @@ function App() {
           </div>
         </div>
       </div>
-
-      {/* Custom Scrollbar Styles embedded for this component */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
