@@ -2,7 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Terminal, ShieldAlert, Zap, Activity, Lock, Play, Ban, Cpu } from 'lucide-react';
 import './App.css';
-
+// Automatically detect if we are running on localhost
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const API_URL = isLocal 
+  ? 'http://127.0.0.1:8000'                  // Local Development
+  : 'https://praetor-415d.onrender.com';     // Live Production
 export default function App() {
   const [status, setStatus] = useState(null);
   const [goal, setGoal] = useState("");
@@ -27,7 +31,7 @@ export default function App() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8001/status');
+      const res = await fetch(`${API_URL}/status`);
       if (!res.ok) throw new Error("Offline");
       const data = await res.json();
       setStatus(data);
@@ -40,7 +44,7 @@ export default function App() {
   const runAgent = async () => {
     if (!goal) return;
     try {
-      await fetch('http://127.0.0.1:8001/run-agent', {
+      await fetch(`${API_URL}/run-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal })
@@ -52,7 +56,7 @@ export default function App() {
   const updateLimit = async (val) => {
     setLimit(val);
     try {
-      await fetch('http://127.0.0.1:8001/set-limit', {
+      await fetch(`${API_URL}/set-limit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ limit: parseFloat(val) })
@@ -61,7 +65,7 @@ export default function App() {
   };
 
   const abortAgent = async () => {
-    try { await fetch('http://127.0.0.1:8001/abort', { method: 'POST' }); } catch(e) {}
+    try { await fetch(`${API_URL}/abort`, { method: 'POST' }); } catch(e) {}
   };
 
   if (!status) return (

@@ -3,3 +3,6 @@ uvicorn
 web3
 python-dotenv
 pydantic
+google-generativeai
+requests
+websockets
