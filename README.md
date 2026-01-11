@@ -65,9 +65,11 @@ graph TD
     Backend -->|Live Logs| Frontend
 🛠️ Tech Stack
 AI
+
 Google Gemini 2.5 Flash (google-generativeai)
 
 Backend
+
 Python 3.10+
 
 FastAPI
@@ -77,6 +79,7 @@ Uvicorn
 Web3.py
 
 Frontend
+
 React (Vite)
 
 Tailwind CSS
@@ -84,17 +87,20 @@ Tailwind CSS
 Lucide Icons
 
 Blockchain
+
 Ethereum (Mainnet / Local Fork)
 
 MNEE Stablecoin
 
 Deployment
+
 Backend: Render
 
 Frontend: Vercel
 
 💻 Installation & Setup
 Prerequisites
+
 Node.js + npm
 
 Python 3.9+
@@ -104,41 +110,40 @@ Google Gemini API Key
 (Optional) Ethereum wallet private key
 
 1️⃣ Clone the Repository
-bash
-Copy code
 git clone https://github.com/your-username/praetor-agi.git
 cd praetor-agi
+
 2️⃣ Backend Setup (The Agent)
-bash
-Copy code
 cd agent
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+
 Create .env inside agent/:
 
-ini
-Copy code
 GEMINI_API_KEY=your_google_ai_key
 RPC_URL=https://mainnet.infura.io/v3/YOUR_ID
 PRIVATE_KEY=your_wallet_private_key
 TREASURY_ADDRESS=0x...
 MNEE_TOKEN_ADDRESS=0x...
+
+
 Run the backend:
 
-bash
-Copy code
 uvicorn server:app --reload
+
 3️⃣ Frontend Setup (The Glass Cockpit)
-bash
-Copy code
 cd ../frontend
 npm install
 npm run dev
+
+
 Open:
 👉 http://localhost:5173
 
 🛡️ Safety & Guardrails
+
 PRAETOR enforces defense-in-depth:
 
 System Prompt Constraints
@@ -156,6 +161,7 @@ Human Override
 Manual kill switch at all times
 
 🔮 Roadmap
+
 🤝 Multi-Agent Swarms
 CEO, CFO, and Risk Officer agents voting on actions
 
@@ -166,13 +172,12 @@ Community-governed budget caps
 Live MNEE vault with real capital
 
 📄 License
+
 Distributed under the MIT License.
 See LICENSE for details.
 
 Built with ❤️ for the MNEE × Google AI Hackathon
 
-yaml
-Copy code
 
 ---
 
