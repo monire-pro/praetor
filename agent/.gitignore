@@ -1,0 +1,93 @@
+# ===============================
+# Python
+# ===============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# ===============================
+# Virtual Environments
+# ===============================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ===============================
+# Environment Variables / Secrets
+# ===============================
+.env
+.env.*
+!.env.example
+
+# ===============================
+# FastAPI / Uvicorn / Gunicorn
+# ===============================
+*.log
+uvicorn.log
+gunicorn.log
+
+# ===============================
+# Database
+# ===============================
+*.sqlite
+*.sqlite3
+.db
+*.db
+
+# ===============================
+# Migrations / Caches
+# ===============================
+alembic/versions/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# ===============================
+# Testing / Coverage
+# ===============================
+.coverage
+coverage.xml
+htmlcov/
+pytest.xml
+
+# ===============================
+# Build / Distribution
+# ===============================
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ===============================
+# Jupyter / Notebooks
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# IDEs / Editors
+# ===============================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ===============================
+# OS Files
+# ===============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===============================
+# Logs / Temp
+# ===============================
+*.tmp
+*.swp
+*.bak

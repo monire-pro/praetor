@@ -1,411 +1,213 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, Play, Activity, Cpu, Search, Wifi, Zap } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Terminal, ShieldAlert, Zap, Activity, Lock, Play, Ban, Cpu } from 'lucide-react';
 import './App.css';
 
-function App() {
-  const [logs, setLogs] = useState([]);
+export default function App() {
+  const [status, setStatus] = useState(null);
   const [goal, setGoal] = useState("");
-  const [stats, setStats] = useState({
-    balance: 0,
-    spent: 0,
-    revenue: 0,
-    net_profit: 0,
-    status: "IDLE",
-    history: []
-  });
-  const [loading, setLoading] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const logsEndRef = useRef(null);
+  const [limit, setLimit] = useState(100);
+  
+  // Create a ref for the Terminal container itself
+  const terminalRef = useRef(null); 
 
-  // ==============================================
-  // 1. WEBSOCKET CONNECTION (The Data Stream)
-  // ==============================================
+  // Poll Backend every 1s
   useEffect(() => {
-    let ws = null;
-    let isMounted = true;
-    let retryCount = 0;
-
-    const connectWebSocket = () => {
-      // Prevent infinite rapid retries
-      if (retryCount > 5) {
-        console.error("🛑 Max retries reached. backend likely offline.");
-        return;
-      }
-
-      console.log(`🔌 Attempting WS Connection (Attempt ${retryCount + 1})...`);
-      ws = new WebSocket("ws://127.0.0.1:8000/ws");
-
-      ws.onopen = () => {
-        if (isMounted) {
-          console.log("🟢 Connected to Neural Net");
-          setIsConnected(true);
-          retryCount = 0; // Reset retries on success
-        }
-      };
-
-      ws.onmessage = (event) => {
-        if (!isMounted) return;
-        try {
-          const data = JSON.parse(event.data);
-          if (data.tag) {
-            setLogs((prev) => {
-              const newLogs = [...prev, data];
-              return newLogs.slice(-100); // Keep last 100
-            });
-          }
-        } catch (err) {
-          console.error("Parse Error:", err);
-        }
-      };
-
-      ws.onclose = (event) => {
-        if (isMounted) {
-          console.log("🔴 WebSocket Disconnected code:", event.code);
-          setIsConnected(false);
-          
-          // Retry connection after 3 seconds
-          setTimeout(() => {
-            if (isMounted && (!ws || ws.readyState === WebSocket.CLOSED)) {
-               retryCount++;
-               connectWebSocket();
-            }
-          }, 3000);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error("⚠️ WebSocket Error. Backend reachable?", error);
-        ws.close();
-      };
-    };
-
-    connectWebSocket();
-
-    return () => {
-      isMounted = false;
-      if (ws) ws.close();
-    };
-  }, []);
-
-  // Auto-scroll logs
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
-  // ==============================================
-  // 2. HTTP ACTIONS (Ping & Commands)
-  // ==============================================
-
-  // Poll Stats every 2 seconds
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:8000/status');
-        if (res.ok) {
-           const data = await res.json();
-           setStats(data);
-        }
-      } catch (e) {
-        // Silent fail on polling to avoid console spam
-      }
-    };
-    const interval = setInterval(fetchStats, 2000);
+    const interval = setInterval(fetchStatus, 1000);
+    fetchStatus();
     return () => clearInterval(interval);
   }, []);
 
-  // MANUAL PING TEST
-  const handlePing = async () => {
-    console.log("📡 Pinging Backend...");
+  // AUTO-SCROLL LOGIC: This only scrolls the terminal box, not the whole page
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [status?.logs]);
+
+  const fetchStatus = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/status');
-      if (res.ok) {
-        const data = await res.json();
-        console.log("✅ PING SUCCESS:", data);
-        alert("✅ Backend is ONLINE! Connection verified.");
-      } else {
-        alert("⚠️ Backend responded with error: " + res.status);
-      }
-    } catch (e) {
-      console.error("Ping Failed:", e);
-      alert("❌ PING FAILED: Backend unreachable.\nIs python running? \nIs uvicorn running?");
+      const res = await fetch('http://127.0.0.1:8001/status');
+      if (!res.ok) throw new Error("Offline");
+      const data = await res.json();
+      setStatus(data);
+    } catch (e) { 
+      // Fallback/Mock data for UI testing if backend is offline
+      console.log("Connecting to core...");
     }
   };
 
-  const handleRunAgent = async () => {
+  const runAgent = async () => {
     if (!goal) return;
-    setLoading(true);
-    
-    // Add local log immediately for better UX
-    const tempLog = { 
-        timestamp: Date.now() / 1000, 
-        tag: "CLIENT", 
-        description: `Sending command: ${goal}...` 
-    };
-    setLogs(prev => [...prev, tempLog]);
-
     try {
-      const res = await fetch('http://127.0.0.1:8000/run-agent', {
+      await fetch('http://127.0.0.1:8001/run-agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal })
       });
-      
-      if (!res.ok) throw new Error("Backend Error");
-      
       setGoal("");
-    } catch (e) {
-      console.error(e);
-      const errLog = { 
-        timestamp: Date.now() / 1000, 
-        tag: "ERROR", 
-        description: "Failed to send command. Backend Offline." 
-      };
-      setLogs(prev => [...prev, errLog]);
-      alert("❌ Backend Offline. Check Terminal.");
-    }
-    setLoading(false);
+    } catch(e) { console.error(e) }
   };
 
-  const formatTime = (ts) => {
-    if (!ts) return new Date().toLocaleTimeString();
-    const date = new Date(ts < 10000000000 ? ts * 1000 : ts);
-    return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+  const updateLimit = async (val) => {
+    setLimit(val);
+    try {
+      await fetch('http://127.0.0.1:8001/set-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: parseFloat(val) })
+      });
+    } catch(e) { console.error(e) }
   };
 
-  // ==============================================
-  // 3. RENDER UI
-  // ==============================================
+  const abortAgent = async () => {
+    try { await fetch('http://127.0.0.1:8001/abort', { method: 'POST' }); } catch(e) {}
+  };
+
+  if (!status) return (
+    <div className="dashboard" style={{display:'flex', height:'100vh', justifyContent:'center', alignItems:'center'}}>
+      <div className="loading" style={{color: '#00ff41', fontFamily: 'monospace'}}>INITIALIZING NEURAL LINK...</div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-sans selection:bg-blue-500/30 overflow-hidden relative">
-      
-      {/* BACKGROUND */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <img src="/bg.jpg" alt="Background" className="w-full h-full object-cover opacity-55"/>
-        <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/90 via-zinc-950/80 to-black/90"></div>
-      </div>
-
-      <div className="max-w-[1600px] mx-auto p-4 lg:p-6 relative z-10 h-screen flex flex-col">
+    <>
+      <div className="scanlines"></div>
+      <div className="dashboard">
         
-        {/* HEADER */}
-        <header className="flex items-center justify-between mb-6 pb-4 border-b border-white/5">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-900 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20 border border-blue-500/30">
-              <Cpu className="w-5 h-5 text-white" />
-            </div>
+        {/* HEADER - Now stays at the top */}
+        <header>
+          <div className="brand">
+            <Zap size={28} className="icon-neon" />
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                PRAETOR <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">PRIME</span>
-              </h1>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium">Autonomous Asset Neural Net</p>
+              <h1>PRAETOR_AGI</h1>
+              <span className="version">SYS.VER.1.0.4</span>
             </div>
           </div>
-
-          <div className="flex items-center gap-4">
-            
-            {/* PING BUTTON */}
-            <button 
-                onClick={handlePing}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 text-xs font-bold transition-colors"
-            >
-                <Zap className="w-3.5 h-3.5" />
-                PING NETWORK
-            </button>
-
-            {/* STATUS */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-sm transition-all duration-500 ${
-                isConnected 
-                ? "bg-zinc-900/50 border-zinc-700 text-zinc-400" 
-                : "bg-red-900/20 border-red-500/20 text-red-500"
-            }`}>
-               <Wifi className={`w-3.5 h-3.5 ${isConnected ? "text-emerald-500" : "text-red-500"}`} />
-               <span className="text-xs font-bold tracking-wide">
-                 {isConnected ? "LIVE FEED" : "OFFLINE"}
-               </span>
+          <div className="stats">
+            <div className="stat-box">
+              <span className="label">Treasury</span>
+              <span className="value mnee">{status.balance?.toFixed(2) || "0.00"} MNEE</span>
+            </div>
+            <div className="stat-box">
+              <span className="label">System State</span>
+              <span className={`value status ${status.status === "WORKING" ? "blink" : ""}`}>
+                {status.status || "OFFLINE"}
+              </span>
             </div>
           </div>
         </header>
 
-        {/* MAIN LAYOUT */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
-
-          {/* LEFT COLUMN */}
-          <div className="lg:col-span-8 flex flex-col gap-6 min-h-0">
+        {/* TOP ROW */}
+        <div className="main-grid">
+          
+          {/* CONTROLS */}
+          <div className="panel controls">
+            <h2><Activity size={18} color="var(--neon-blue)" /> COMMAND OVERRIDE</h2>
             
-            {/* INPUT */}
-            <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-1 shadow-xl backdrop-blur-md">
-              <div className="relative flex items-center">
-                <div className="absolute left-4 text-blue-500">
-                  <Terminal className="w-5 h-5" />
-                </div>
-                <input
-                  type="text"
-                  value={goal}
-                  onChange={(e) => setGoal(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleRunAgent()}
-                  placeholder="Input strategic directive..."
-                  className="w-full bg-transparent border-none text-white placeholder-zinc-600 pl-12 pr-32 py-4 focus:ring-0 font-mono text-sm"
-                />
-                <button
-                  onClick={handleRunAgent}
-                  disabled={stats.status === "WORKING" || !goal}
-                  className="absolute right-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-900/20"
-                >
-                  {loading ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
-                  EXECUTE
+            <div className="input-group">
+              <label>MISSION PARAMETERS</label>
+              <textarea 
+                value={goal} 
+                onChange={(e) => setGoal(e.target.value)} 
+                placeholder="> Input directive protocol..."
+              />
+              <div className="btn-row">
+                <button className="btn-primary" onClick={runAgent} disabled={status.status === "WORKING"}>
+                  <Play size={16} /> EXECUTE
+                </button>
+                <button className="btn-danger" onClick={abortAgent}>
+                  <Ban size={16} /> KILL SWITCH
                 </button>
               </div>
             </div>
 
-            {/* SPLIT AREA */}
-            <div className="flex-1 grid grid-rows-2 gap-6 min-h-0">
-              
-              {/* LOGS */}
-              <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden flex flex-col shadow-inner relative group backdrop-blur-sm">
-                <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-zinc-400 uppercase flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
-                    System Stream
-                  </span>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs custom-scrollbar">
-                  {logs.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-zinc-700 space-y-2">
-                      <Terminal className="w-8 h-8 opacity-20" />
-                      <p>Awaiting Neural Input...</p>
-                    </div>
-                  )}
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
-                      <span className="text-zinc-600 shrink-0 select-none">{formatTime(log.timestamp)}</span>
-                      <div className="flex gap-2">
-                        <span className={`shrink-0 px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold border ${
-                          log.tag === "ERROR" || log.tag === "ABORT" ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                          log.tag === "SUCCESS" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                          log.tag === "COMMAND" || log.tag === "CLIENT" ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
-                          "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                        }`}>
-                          {log.tag}
-                        </span>
-                        <span className={`text-zinc-300 ${log.tag === "ERROR" ? "text-red-300" : ""}`}>
-                          {log.description}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={logsEndRef} />
-                </div>
-              </div>
-
-              {/* TABLE */}
-              <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden flex flex-col backdrop-blur-sm">
-                <div className="px-5 py-3 border-b border-white/5 bg-white/[0.02] flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Transaction Ledger</h3>
-                  <div className="p-1 bg-zinc-800 rounded text-zinc-500"><Search className="w-3 h-3" /></div>
-                </div>
-                <div className="flex-1 overflow-auto custom-scrollbar">
-                  <table className="w-full text-left text-xs">
-                    <thead className="text-zinc-500 font-medium bg-white/[0.02] sticky top-0 backdrop-blur-sm z-10">
-                      <tr>
-                        <th className="px-5 py-3 font-normal">Timestamp</th>
-                        <th className="px-5 py-3 font-normal">Operation</th>
-                        <th className="px-5 py-3 font-normal text-right">Cost</th>
-                        <th className="px-5 py-3 font-normal text-right">Rev</th>
-                        <th className="px-5 py-3 font-normal text-right">Net</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {stats.history.length === 0 ? (
-                          <tr><td colSpan="5" className="text-center py-10 text-zinc-700 italic">No ledger activity recorded.</td></tr>
-                      ) : (
-                        stats.history.map((tx) => (
-                          <tr key={tx.id} className="hover:bg-white/[0.03] transition-colors group">
-                            <td className="px-5 py-2.5 font-mono text-zinc-500">{tx.time}</td>
-                            <td className="px-5 py-2.5 text-zinc-300 font-medium group-hover:text-white">{tx.type}</td>
-                            <td className="px-5 py-2.5 text-right font-mono text-red-400/80">{tx.cost > 0 ? '-' : ''}{tx.cost.toFixed(2)}</td>
-                            <td className="px-5 py-2.5 text-right font-mono text-blue-400/80">{tx.revenue > 0 ? '+' : ''}{tx.revenue.toFixed(2)}</td>
-                            <td className={`px-5 py-2.5 text-right font-mono font-bold ${tx.profit >= 0 ? "text-emerald-400" : "text-red-500"}`}>
-                              {tx.profit > 0 ? '+' : ''}{tx.profit.toFixed(2)}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
+            <div className="input-group">
+              <label><Lock size={14} /> RESOURCE ALLOCATION LIMIT</label>
+              <input 
+                type="range" min="10" max="500" value={limit} 
+                onChange={(e) => updateLimit(e.target.value)} 
+              />
+              <div className="range-val">{limit} MNEE</div>
             </div>
           </div>
 
-          {/* RIGHT COLUMN */}
-          <div className="lg:col-span-4 flex flex-col gap-4">
-            
-            {/* BALANCE */}
-            <div className="bg-gradient-to-br from-zinc-900/80 to-black/80 border border-white/10 p-6 rounded-2xl relative overflow-hidden group backdrop-blur-md">
-              <div className="absolute -right-10 -top-10 w-40 h-40 bg-blue-600/10 rounded-full blur-3xl group-hover:bg-blue-600/20 transition-all"></div>
-              <div className="flex justify-between items-start mb-6 relative z-10">
-                <div className="p-2 bg-zinc-800/50 rounded-lg border border-white/5">
-                  <Wallet className="w-5 h-5 text-zinc-400" />
-                </div>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Treasury</span>
-              </div>
-              <div className="relative z-10">
-                <div className="text-4xl font-mono font-bold text-white tracking-tighter">
-                  {stats.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-xs text-zinc-500 mt-1 flex items-center gap-1">
-                  Available Liquidity <span className="text-zinc-600">|</span> USD
-                </div>
-              </div>
+          {/* TERMINAL - Container now handles its own scrolling */}
+          <div className="panel terminal-panel">
+            <h2><Terminal size={18} color="var(--neon-green)"/> NEURAL LOGS</h2>
+            <div className="terminal-window" ref={terminalRef} style={{ overflowY: 'auto' }}>
+              {status.logs && status.logs.length > 0 ? (
+                status.logs.map((log, i) => (
+                  <div key={i} className="log-line">
+                    <span className="log-caret">{'>'}</span> {log}
+                  </div>
+                ))
+              ) : (
+                <div className="log-line" style={{color:'#555'}}>System quiet...</div>
+              )}
             </div>
+          </div>
+        </div>
 
-            {/* METRICS */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="p-1.5 bg-red-500/10 rounded text-red-500"><ArrowDownLeft className="w-3.5 h-3.5" /></div>
-                  <span className="text-[10px] uppercase text-zinc-500 font-bold">Spent</span>
-                </div>
-                <p className="text-xl font-mono text-zinc-200">{stats.spent.toLocaleString()}</p>
-              </div>
-              <div className="bg-zinc-900/40 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                  <div className="p-1.5 bg-blue-500/10 rounded text-blue-500"><ArrowUpRight className="w-3.5 h-3.5" /></div>
-                  <span className="text-[10px] uppercase text-zinc-500 font-bold">Revenue</span>
-                </div>
-                <p className="text-xl font-mono text-zinc-200">{stats.revenue.toLocaleString()}</p>
-              </div>
+        {/* BOTTOM ROW */}
+        <div className="main-grid">
+          
+          {/* CHART */}
+          <div className="panel chart-panel">
+            <h2><Cpu size={18} color="var(--neon-red)" /> COST ANALYSIS VECTOR</h2>
+            <div className="chart-container">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={status.history ? [...status.history].reverse() : []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                  <XAxis dataKey="time" stroke="#555" tick={{fontSize: 10}} interval="preserveStartEnd" />
+                  <YAxis stroke="#555" tick={{fontSize: 10}} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#050505', border: '1px solid #333', color: '#fff' }} 
+                    itemStyle={{ fontSize: '0.8rem' }}
+                  />
+                  <Line type="stepAfter" dataKey="cost" stroke="#00ff41" strokeWidth={2} dot={false} name="Cost" />
+                  <Line type="monotone" dataKey="urgency" stroke="#ff0055" strokeWidth={1} dot={false} name="Risk" />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
+          </div>
 
-            {/* NET PROFIT */}
-            <div className="flex-1 min-h-[180px] bg-gradient-to-b from-zinc-900/80 to-black/80 border border-white/10 rounded-2xl p-6 relative flex flex-col justify-end overflow-hidden backdrop-blur-md">
-               <div className="absolute inset-0 opacity-20">
-                  <svg className="w-full h-full" preserveAspectRatio="none">
-                    <path d="M0,100 Q50,50 100,80 T200,40 T300,90" fill="none" stroke={stats.net_profit >= 0 ? "#10b981" : "#ef4444"} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                  </svg>
-               </div>
-               <div className="relative z-10">
-                 <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Total Yield</span>
-                    <DollarSign className={`w-5 h-5 ${stats.net_profit >= 0 ? "text-emerald-500" : "text-red-500"}`} />
-                 </div>
-                 <div className={`text-4xl font-mono font-bold tracking-tight ${stats.net_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                    {stats.net_profit >= 0 ? "+" : ""}{stats.net_profit.toLocaleString()}
-                 </div>
-               </div>
+          {/* AUDIT LOG */}
+          <div className="panel audit-panel">
+            <h2><ShieldAlert size={18} color="#e0e0e0" /> IMMUTABLE LEDGER</h2>
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>TIME</th>
+                    <th>REASONING</th>
+                    <th>RISK</th>
+                    <th>COST</th>
+                    <th>HASH</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.history && status.history.map((tx) => (
+                    <tr key={tx.id}>
+                      <td style={{color: '#666'}}>{tx.time}</td>
+                      <td>{tx.reason}</td>
+                      <td>
+                        <span className={`tag ${tx.urgency > 80 ? "high" : ""}`}>
+                          {tx.urgency > 80 ? "CRITICAL" : "NORMAL"}
+                        </span>
+                      </td>
+                      <td style={{ color: tx.cost > 0 ? '#00ff41' : '#ff0055', fontWeight: 'bold' }}>
+                        {tx.cost > 0 ? '+' : ''}{tx.cost}
+                      </td>
+                      <td className="hash">{tx.tx ? tx.tx.substring(0, 8) : '0x00'}...</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
           </div>
         </div>
       </div>
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
-      `}</style>
-    </div>
+    </>
   );
 }
-
-export default App;
